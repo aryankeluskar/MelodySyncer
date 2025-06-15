@@ -48,13 +48,13 @@ async fn handle_post(req: Request) -> Result<Response<Body>, Error> {
     })?;
 
     // Validate count is reasonable (prevent abuse)
-    if request_data.count > 1000 {
+    if request_data.count > 100000 {
         return Ok(Response::builder()
             .status(StatusCode::BAD_REQUEST)
             .header("Content-Type", "application/json")
             .body(
                 json!({
-                    "error": "Count must be 1000 or less"
+                    "error": "Count must be 100000 or less"
                 })
                 .to_string()
                 .into(),
@@ -104,13 +104,13 @@ async fn handle_get(req: Request) -> Result<Response<Body>, Error> {
     let count = count.ok_or_else(|| Error::from("Missing or invalid 'count' query parameter"))?;
 
     // Validate count is reasonable (prevent abuse)
-    if count > 1000 {
+    if count > 100000 {
         return Ok(Response::builder()
             .status(StatusCode::BAD_REQUEST)
             .header("Content-Type", "application/json")
             .body(
                 json!({
-                    "error": "Count must be 1000 or less"
+                    "error": "Count must be 100000 or less"
                 })
                 .to_string()
                 .into(),
