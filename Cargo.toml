@@ -59,4 +59,8 @@ path = "api/analytics.rs"
 
 [[bin]]
 name = "favicon"
-path = "api/favicon.rs" 
+path = "api/favicon.rs"
+
+[[bin]]
+name = "repeat"
+path = "api/repeat.rs" 

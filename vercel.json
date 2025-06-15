@@ -11,6 +11,7 @@
     { "src": "/playlist", "dest": "/api/playlist" },
     { "src": "/help", "dest": "/api/help" },
     { "src": "/analytics", "dest": "/api/analytics" },
-    { "src": "/favicon.ico", "dest": "/api/favicon" }
+    { "src": "/favicon.ico", "dest": "/api/favicon" },
+    { "src": "/repeat", "dest": "/api/repeat" }
   ]
 } 

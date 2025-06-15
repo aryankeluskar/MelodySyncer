@@ -16,6 +16,7 @@ pub async fn handler(_req: Request) -> Result<Response<Body>, Error> {
 - GET /playlist?query={spotify_playlist_id} - Convert entire playlist to YouTube URLs
 - GET /analytics - Get usage statistics
 - GET /help - This help page
+- GET/POST /repeat - Utility endpoint to repeat text multiple times
 
 ⚡ Features:
 - Lightning fast Rust implementation
