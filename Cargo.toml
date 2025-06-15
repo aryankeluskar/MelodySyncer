@@ -17,8 +17,8 @@ vercel_runtime = "1.0"
 urlencoding = "2.1"
 # Base64 encoding for Spotify auth
 base64 = "0.21"
-# MongoDB async driver - optional to reduce bundle size
-mongodb = { version = "2.8", optional = true, default-features = false }
+# MongoDB async driver - OPTIMIZED with tokio runtime for SPEED
+mongodb = { version = "2.8", optional = true, default-features = false, features = ["tokio-runtime"] }
 # Error handling
 anyhow = "1.0"
 thiserror = "1.0"

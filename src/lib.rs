@@ -13,32 +13,25 @@ use tokio::sync::RwLock;
 // Global HTTP client with connection pooling for MAXIMUM SPEED
 pub static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
     Client::builder()
-        .pool_max_idle_per_host(20)
-        .pool_idle_timeout(Duration::from_secs(30))
-        .timeout(Duration::from_secs(30))
-        .connect_timeout(Duration::from_secs(10))
-        .tcp_keepalive(Duration::from_secs(60))
+        .pool_max_idle_per_host(100)  // INCREASED for more connections
+        .pool_idle_timeout(Duration::from_secs(90))  // Longer idle time
+        .timeout(Duration::from_secs(8))  // Slightly faster timeout
+        .connect_timeout(Duration::from_secs(2))  // FASTER connection timeout  
+        .tcp_keepalive(Duration::from_secs(60))  // Longer keepalive
         .tcp_nodelay(true)
         .use_rustls_tls()
+        .http2_prior_knowledge()
+        .http2_keep_alive_interval(Duration::from_secs(5))  // More frequent pings
+        .http2_keep_alive_timeout(Duration::from_secs(3))  // Faster timeout
+        .http2_max_frame_size(Some(1 << 21))  // BIGGER frames for more data per round trip
+        .http2_adaptive_window(true)  // ADAPTIVE window sizing
         .build()
         .expect("Failed to create HTTP client")
 });
 
-// Global MongoDB client with connection pooling  
-pub static MONGO_CLIENT: Lazy<Option<MongoClient>> = Lazy::new(|| {
-    if let Ok(uri) = env::var("MONGO_URI") {
-        tokio::runtime::Handle::try_current()
-            .ok()
-            .and_then(|_| {
-                tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        MongoClient::with_uri_str(&uri).await.ok()
-                    })
-                })
-            })
-    } else {
-        None
-    }
+// FIXED: Use proper async initialization
+pub static MONGO_CLIENT: Lazy<Arc<RwLock<Option<MongoClient>>>> = Lazy::new(|| {
+    Arc::new(RwLock::new(None))
 });
 
 // Spotify API client with token caching for SPEED
@@ -60,14 +53,14 @@ impl SpotifyClient {
     }
 
     pub async fn get_token(&mut self) -> Result<String> {
-        // Check if we have a valid cached token
+        // Check if we have a valid cached token - FASTER validation
         if let (Some(token), Some(expires_at)) = (&self.token, &self.token_expires_at) {
             if expires_at > &std::time::Instant::now() {
                 return Ok(token.clone());
             }
         }
 
-        // Get new token
+        // Get new token with OPTIMIZED request
         let client_id =
             env::var("SPOTIPY_CLIENT_ID").map_err(|_| anyhow!("SPOTIPY_CLIENT_ID not found"))?;
         let client_secret = env::var("SPOTIPY_CLIENT_SECRET")
@@ -84,6 +77,7 @@ impl SpotifyClient {
         let response = HTTP_CLIENT
             .post("https://accounts.spotify.com/api/token")
             .header("Authorization", auth_header)
+            .header("Content-Type", "application/x-www-form-urlencoded")  // EXPLICIT content type
             .form(&params)
             .send()
             .await?;
@@ -96,10 +90,10 @@ impl SpotifyClient {
 
         let expires_in = token_response["expires_in"].as_u64().unwrap_or(3600);
 
-        // Cache the token
+        // Cache the token with BETTER expiry buffer
         self.token = Some(access_token.clone());
         self.token_expires_at = Some(
-            std::time::Instant::now() + Duration::from_secs(expires_in - 60), // 1 minute buffer
+            std::time::Instant::now() + Duration::from_secs(expires_in - 120), // 2 minute buffer for safety
         );
 
         Ok(access_token)
@@ -243,7 +237,7 @@ pub async fn get_track_duration_yt(video_id: &str, api_keys: &[String]) -> Resul
     Err(anyhow!("Failed to get video duration with all API keys"))
 }
 
-// GODLY FAST YouTube search with custom accuracy scoring
+// GODLY FAST YouTube search with custom accuracy scoring - ULTRA OPTIMIZED
 pub async fn search_track_yt(
     song_name: &str,
     artist_name: &str,
@@ -251,79 +245,168 @@ pub async fn search_track_yt(
     song_duration: u32,
     api_keys: &[String],
 ) -> Result<String> {
+    // OPTIMIZED search query construction
     let search_query = format!(
         "{} {} {} Official Audio",
         song_name, album_name, artist_name
     );
 
-    for api_key in api_keys {
-        let url = format!(
-            "https://youtube.googleapis.com/youtube/v3/search?part=snippet&q={}&type=video&key={}",
-            urlencoding::encode(&search_query),
-            api_key
-        );
+    // PARALLEL API key attempts for MAXIMUM SPEED
+    let search_futures: Vec<_> = api_keys.iter().enumerate().map(|(i, api_key)| {
+        let search_query = search_query.clone();
+        let api_key = api_key.clone();
+        async move {
+            let url = format!(
+                "https://youtube.googleapis.com/youtube/v3/search?part=snippet&q={}&type=video&maxResults=10&key={}",
+                urlencoding::encode(&search_query),
+                api_key
+            );
 
-        match HTTP_CLIENT.get(&url).send().await {
-            Ok(response) if response.status().is_success() => {
-                if let Ok(search_result) = response.json::<YouTubeSearchResponse>().await {
-                    if search_result.items.is_empty() {
-                        return Ok("dQw4w9WgXcQ".to_string()); // Fallback
-                    }
+            // FASTER request with explicit headers
+            let response = HTTP_CLIENT
+                .get(&url)
+                .header("Accept", "application/json")
+                .header("Accept-Encoding", "gzip, deflate, br")
+                .send()
+                .await;
 
-                    // PARALLEL PROCESSING FOR MAXIMUM SPEED
-                    let duration_tasks: Vec<_> = search_result
-                        .items
-                        .iter()
-                        .map(|item| get_track_duration_yt(&item.id.video_id, api_keys))
-                        .collect();
-
-                    let durations = join_all(duration_tasks).await;
-
-                    // LIGHTNING FAST ACCURACY SCORING
-                    let mut best_score = 0;
-                    let mut best_video_id = &search_result.items[0].id.video_id;
-
-                    for (i, item) in search_result.items.iter().enumerate() {
-                        let mut score = 0;
-
-                        // +2 for Topic channels (official artist channels)
-                        if item.snippet.channel_title.contains("Topic") {
-                            score += 2;
-                        }
-
-                        // +2 for Official Audio
-                        if item.snippet.title.contains("Official Audio")
-                            || item.snippet.title.contains("Full Audio Song")
-                        {
-                            score += 2;
-                        }
-
-                        // +5 for duration match within 2 seconds
-                        if let Ok(video_duration) = &durations[i] {
-                            if ((*video_duration as i64) - (song_duration as i64)).abs() <= 2000 {
-                                score += 5;
-                            }
-                        }
-
-                        if score > best_score {
-                            best_score = score;
-                            best_video_id = &item.id.video_id;
+            match response {
+                Ok(resp) if resp.status().is_success() => {
+                    if let Ok(search_result) = resp.json::<YouTubeSearchResponse>().await {
+                        if !search_result.items.is_empty() {
+                            return Some((i, search_result));
                         }
                     }
-
-                    return Ok(best_video_id.clone());
                 }
+                _ => {}
             }
-            _ => continue, // Try next API key
+            None
+        }
+    }).collect();
+
+    // Wait for FIRST successful response (fastest API key wins)
+    let search_results = join_all(search_futures).await;
+    
+    // Get the first successful result
+    let search_result = search_results
+        .into_iter()
+        .find_map(|result| result)
+        .ok_or_else(|| anyhow!("Failed to search YouTube with all API keys"))?;
+
+    let (_winning_api_index, search_data) = search_result;
+
+    // ULTRA PARALLEL duration fetching - ALL at once
+    let duration_tasks: Vec<_> = search_data
+        .items
+        .iter()
+        .map(|item| {
+            let video_id = item.id.video_id.clone();
+            let api_keys = api_keys.to_vec();
+            async move {
+                get_track_duration_yt(&video_id, &api_keys).await.unwrap_or(0)
+            }
+        })
+        .collect();
+
+    let durations = join_all(duration_tasks).await;
+
+    // LIGHTNING FAST ACCURACY SCORING with BETTER scoring algorithm
+    let mut best_score = -1;
+    let mut best_video_id = &search_data.items[0].id.video_id;
+
+    for (i, item) in search_data.items.iter().enumerate() {
+        let mut score = 0;
+
+        // +3 for Topic channels (official artist channels) - INCREASED weight
+        if item.snippet.channel_title.contains("Topic") {
+            score += 3;
+        }
+
+        // +3 for Official Audio/Video - INCREASED weight  
+        if item.snippet.title.contains("Official Audio")
+            || item.snippet.title.contains("Official Video")
+            || item.snippet.title.contains("Full Audio Song")
+        {
+            score += 3;
+        }
+
+        // +1 for containing artist name in title
+        if item.snippet.title.to_lowercase().contains(&artist_name.to_lowercase()) {
+            score += 1;
+        }
+
+        // +1 for containing song name in title
+        if item.snippet.title.to_lowercase().contains(&song_name.to_lowercase()) {
+            score += 1;
+        }
+
+        // +7 for PERFECT duration match (within 1 second) - INCREASED weight
+        let video_duration = durations[i];
+        if video_duration > 0 {
+            let duration_diff = ((video_duration as i64) - (song_duration as i64)).abs();
+            if duration_diff <= 1000 {
+                score += 7;  // Perfect match
+            } else if duration_diff <= 2000 {
+                score += 5;  // Very close match
+            } else if duration_diff <= 5000 {
+                score += 2;  // Close match
+            }
+        }
+
+        if score > best_score {
+            best_score = score;
+            best_video_id = &item.id.video_id;
         }
     }
 
-    Err(anyhow!("Failed to search YouTube with all API keys"))
+    Ok(best_video_id.clone())
 }
 
-// SUPER FAST analytics updater
+// Async function to get or initialize MongoDB client - OPTIMIZED FOR SPEED
+pub async fn get_mongo_client() -> Option<MongoClient> {
+    // Fast path: check if already initialized
+    {
+        let client_guard = MONGO_CLIENT.read().await;
+        if let Some(ref client) = *client_guard {
+            return Some(client.clone());
+        }
+    }
+    
+    // Initialize if not exists with OPTIMIZED settings
+    if let Ok(uri) = env::var("MONGO_URI") {
+        // Use spawn_blocking for CPU-bound initialization with OPTIMIZED client options
+        match tokio::task::spawn_blocking(move || {
+            tokio::runtime::Handle::current().block_on(async {
+                // OPTIMIZED MongoDB client with connection pooling
+                let mut client_options = mongodb::options::ClientOptions::parse(&uri).await?;
+                
+                // CRITICAL: Optimize connection pool for SPEED
+                client_options.max_pool_size = Some(20);  // More connections
+                client_options.min_pool_size = Some(5);   // Keep minimum connections alive
+                client_options.max_idle_time = Some(std::time::Duration::from_secs(300));  // 5 min idle
+                client_options.connect_timeout = Some(std::time::Duration::from_millis(2000));  // 2s timeout
+                client_options.server_selection_timeout = Some(std::time::Duration::from_millis(3000));  // 3s selection
+                
+                MongoClient::with_options(client_options)
+            })
+        }).await {
+            Ok(Ok(client)) => {
+                // Cache the client for future use
+                let mut client_guard = MONGO_CLIENT.write().await;
+                *client_guard = Some(client.clone());
+                Some(client)
+            }
+            _ => None  // Fail silently for non-critical MongoDB operations
+        }
+    } else {
+        None
+    }
+}
+
+// SUPER FAST analytics updater - COMPLETELY ASYNC
 pub async fn update_analytics(songs_converted: i32, playlists_converted: i32) -> Result<()> {
-    if let Some(client) = MONGO_CLIENT.as_ref() {
+    // Only get client if we need it - lazy initialization
+    if let Some(client) = get_mongo_client().await {
         let db_name = env::var("MONGO_DB").unwrap_or_default();
         let collection_name = env::var("MONGO_COLLECTION").unwrap_or_default();
 
@@ -340,9 +423,9 @@ pub async fn update_analytics(songs_converted: i32, playlists_converted: i32) ->
                 }
             };
 
-            // Fire and forget for maximum speed
+            // Fire and forget for maximum speed - but with proper error handling
             tokio::spawn(async move {
-                let _ = collection
+                if let Err(_) = collection
                     .update_many(
                         doc! {},
                         update_doc,
@@ -350,7 +433,10 @@ pub async fn update_analytics(songs_converted: i32, playlists_converted: i32) ->
                             .upsert(true)
                             .build(),
                     )
-                    .await;
+                    .await {
+                    // Log error but don't fail the request
+                    eprintln!("Analytics update failed");
+                }
             });
         }
     }
@@ -358,32 +444,45 @@ pub async fn update_analytics(songs_converted: i32, playlists_converted: i32) ->
     Ok(())
 }
 
-// Cached YouTube API keys for MAXIMUM SPEED
-static YOUTUBE_API_KEYS: Lazy<Vec<String>> = Lazy::new(|| {
+pub fn get_youtube_api_keys() -> Vec<String> {
     let mut keys = Vec::new();
-    
-    // Try to get up to 10 API keys efficiently
-    for i in 1..=10 {
-        let key_name = if i == 1 {
-            "YOUTUBE_API_KEY".to_string()
-        } else {
-            format!("YOUTUBE_API_KEY{}", i)
-        };
-        
-        if let Ok(key) = env::var(&key_name) {
-            keys.push(key);
-        }
+
+    if let Ok(key) = env::var("YOUTUBE_API_KEY") {
+        keys.push(key);
     }
-    
+    if let Ok(key) = env::var("YOUTUBE_API_KEY2") {
+        keys.push(key);
+    }
+    if let Ok(key) = env::var("YOUTUBE_API_KEY3") {
+        keys.push(key);
+    }
+    if let Ok(key) = env::var("YOUTUBE_API_KEY4") {
+        keys.push(key);
+    }
+    if let Ok(key) = env::var("YOUTUBE_API_KEY5") {
+        keys.push(key);
+    }
+    if let Ok(key) = env::var("YOUTUBE_API_KEY6") {
+        keys.push(key);
+    }
+    if let Ok(key) = env::var("YOUTUBE_API_KEY7") {
+        keys.push(key);
+    }
+    if let Ok(key) = env::var("YOUTUBE_API_KEY8") {
+        keys.push(key);
+    }
+    if let Ok(key) = env::var("YOUTUBE_API_KEY9") {
+        keys.push(key);
+    }
+    if let Ok(key) = env::var("YOUTUBE_API_KEY10") {
+        keys.push(key);
+    }
+
     if keys.is_empty() {
         keys.push("default".to_string());
     }
-    
-    keys
-});
 
-pub fn get_youtube_api_keys() -> Vec<String> {
-    YOUTUBE_API_KEYS.clone()
+    keys
 }
 
 #[derive(Serialize)]

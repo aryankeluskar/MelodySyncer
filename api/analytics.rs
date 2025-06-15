@@ -1,4 +1,4 @@
-use melody_syncer_rust::{ApiResponse, MONGO_CLIENT};
+use melody_syncer_rust::{ApiResponse, get_mongo_client};
 use mongodb::bson::Document;
 use serde_json::Value;
 use std::env;
@@ -17,6 +17,7 @@ pub async fn handler(_req: Request) -> Result<Response<Body>, Error> {
                 .status(StatusCode::OK)
                 .header("Content-Type", "application/json")
                 .header("Cache-Control", "public, max-age=60") // 1 minute cache
+                .header("Access-Control-Allow-Origin", "*")  // CORS support
                 .body(serde_json::to_string(&response)?.into())?)
         }
         Err(e) => {
@@ -24,14 +25,14 @@ pub async fn handler(_req: Request) -> Result<Response<Body>, Error> {
             Ok(Response::builder()
                 .status(StatusCode::INTERNAL_SERVER_ERROR)
                 .header("Content-Type", "application/json")
+                .header("Access-Control-Allow-Origin", "*")
                 .body(serde_json::to_string(&error_response)?.into())?)
         }
     }
 }
 
 async fn get_analytics() -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
-    let client = MONGO_CLIENT
-        .as_ref()
+    let client = get_mongo_client().await
         .ok_or("MongoDB client not available")?;
 
     let db_name = env::var("MONGO_DB").map_err(|_| "MONGO_DB environment variable not set")?;
@@ -39,7 +40,7 @@ async fn get_analytics() -> Result<Value, Box<dyn std::error::Error + Send + Syn
         .map_err(|_| "MONGO_COLLECTION environment variable not set")?;
 
     let db = client.database(&db_name);
-        let collection: mongodb::Collection<Document> = db.collection(&collection_name);
+    let collection: mongodb::Collection<Document> = db.collection(&collection_name);
     
     let mut cursor = collection.find(None, None).await?;
     let mut results = Vec::new();

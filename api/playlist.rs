@@ -50,7 +50,7 @@ async fn main() -> Result<(), Error> {
 }
 
 pub async fn handler(req: Request) -> Result<Response<Body>, Error> {
-    // LIGHTNING FAST parameter parsing
+    // parameter parsing with optimized allocations
     let uri = req.uri();
     let query_params = uri.query().unwrap_or("");
 
@@ -58,12 +58,21 @@ pub async fn handler(req: Request) -> Result<Response<Body>, Error> {
     let mut youtube_api_key = None;
     let mut give_length = false;
 
+    // parsing - fewer string allocations
     for param in query_params.split('&') {
         if let Some((key, value)) = param.split_once('=') {
             match key {
-                "query" => playlist_id = Some(urlencoding::decode(value).unwrap().to_string()),
+                "query" => {
+                    let decoded = urlencoding::decode(value).unwrap();
+                    if decoded != "null" && !decoded.is_empty() {
+                        playlist_id = Some(decoded.into_owned());
+                    }
+                },
                 "youtubeAPIKEY" => {
-                    youtube_api_key = Some(urlencoding::decode(value).unwrap().to_string())
+                    let decoded = urlencoding::decode(value).unwrap();
+                    if decoded != "default" && !decoded.is_empty() {
+                        youtube_api_key = Some(decoded.into_owned());
+                    }
                 }
                 "give_length" => give_length = value == "yes",
                 _ => {}
@@ -71,24 +80,26 @@ pub async fn handler(req: Request) -> Result<Response<Body>, Error> {
         }
     }
 
-    // Check for API key in headers
+    // header access
     if youtube_api_key.is_none() {
         youtube_api_key = req
             .headers()
             .get("X-YouTube-API-Key")
             .and_then(|h| h.to_str().ok())
+            .filter(|s| !s.is_empty() && *s != "default")
             .map(|s| s.to_string());
     }
 
-    // Validate playlist ID
+    // validation
     let playlist_id = match playlist_id {
-        Some(id) if id != "null" && !id.is_empty() => id,
-        _ => {
+        Some(id) => id,
+        None => {
             let error_response =
                 ApiResponse::<()>::error("Please enter a valid Spotify playlist ID".to_string());
             return Ok(Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("Content-Type", "application/json")
+                .header("Cache-Control", "no-cache")
                 .body(serde_json::to_string(&error_response)?.into())?);
         }
     };
@@ -96,33 +107,29 @@ pub async fn handler(req: Request) -> Result<Response<Body>, Error> {
     // Get YouTube API keys with failover
     let mut api_keys = get_youtube_api_keys();
     if let Some(key) = youtube_api_key {
-        if key != "default" {
-            api_keys.insert(0, key);
-        }
+        api_keys.insert(0, key);
     }
 
-    // GODLY FAST playlist processing
+    // playlist processing
     match process_playlist(&playlist_id, &api_keys).await {
         Ok(youtube_urls) => {
+            // Check for API errors in results
             if youtube_urls
                 .iter()
                 .any(|url| url.contains("API Limit Exceeded"))
             {
                 let error_response = ApiResponse::<()>::error(
-                    "API Limit Exceeded for all YouTube API Keys. Please try again later or enter your own YouTube API Key.".to_string()
+                    "API Limit Exceeded for all YouTube API Keys. Please try again later or provide your own YouTube API Key.".to_string()
                 );
                 return Ok(Response::builder()
-                    .status(StatusCode::SERVICE_UNAVAILABLE)
+                    .status(StatusCode::TOO_MANY_REQUESTS)
                     .header("Content-Type", "application/json")
+                    .header("Cache-Control", "no-cache")
+                    .header("Access-Control-Allow-Origin", "*")
                     .body(serde_json::to_string(&error_response)?.into())?);
             }
 
-            // Fire and forget analytics update
-            let num_songs = youtube_urls.len() as i32;
-            tokio::spawn(async move {
-                let _ = update_analytics(num_songs, 1).await;
-            });
-
+            // Prepare response data
             let mut response = PlaylistResponse {
                 list: youtube_urls,
                 length: None,
@@ -132,30 +139,48 @@ pub async fn handler(req: Request) -> Result<Response<Body>, Error> {
                 response.length = Some(response.list.len());
             }
 
+            let num_songs = response.list.len() as i32;
             let api_response = ApiResponse::success(response);
-            Ok(Response::builder()
+            let response_body = serde_json::to_string(&api_response)?;
+
+            // CRITICAL: Send response IMMEDIATELY
+            let http_response = Response::builder()
                 .status(StatusCode::OK)
                 .header("Content-Type", "application/json")
-                .header("Cache-Control", "public, max-age=300") // 5 minute cache
-                .body(serde_json::to_string(&api_response)?.into())?)
+                .header("Cache-Control", "public, max-age=600") // 10 minute cache - INCREASED
+                .header("Access-Control-Allow-Origin", "*")  // CORS support
+                .header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+                .header("Access-Control-Allow-Headers", "Content-Type, X-YouTube-API-Key")
+                .header("Vary", "Accept-Encoding")  // Compression support
+                .body(response_body.into())?;
+
+            // Analytics AFTER response - COMPLETELY ASYNC
+            tokio::spawn(async move {
+                let _ = update_analytics(num_songs, 1).await;
+            });
+
+            Ok(http_response)
         }
         Err(e) => {
-            let error_msg = match e.to_string().as_str() {
-                msg if msg.contains("404") => {
-                    "Playlist not found. Please check if the playlist exists and is public."
-                        .to_string()
+            // OPTIMIZED error handling with proper status codes
+            let (error_msg, status_code) = match e.to_string().as_str() {
+                msg if msg.contains("404") || msg.contains("not found") => {
+                    ("Playlist not found. Please check if the playlist exists and is public.".to_string(), StatusCode::NOT_FOUND)
                 }
                 msg if msg.contains("Failed to authenticate") => {
-                    "Failed to authenticate with Spotify".to_string()
+                    ("Failed to authenticate with Spotify".to_string(), StatusCode::UNAUTHORIZED)
                 }
-                msg if msg.contains("empty") => "This playlist is empty".to_string(),
-                _ => "An unexpected error occurred. Please try again later.".to_string(),
+                msg if msg.contains("empty") => ("This playlist is empty".to_string(), StatusCode::NOT_FOUND),
+                msg if msg.contains("timeout") => ("Request timeout. Please try again.".to_string(), StatusCode::REQUEST_TIMEOUT),
+                _ => ("An unexpected error occurred. Please try again later.".to_string(), StatusCode::INTERNAL_SERVER_ERROR),
             };
 
             let error_response = ApiResponse::<()>::error(error_msg);
             Ok(Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .status(status_code)
                 .header("Content-Type", "application/json")
+                .header("Cache-Control", "no-cache")
+                .header("Access-Control-Allow-Origin", "*")
                 .body(serde_json::to_string(&error_response)?.into())?)
         }
     }

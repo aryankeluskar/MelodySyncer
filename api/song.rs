@@ -17,44 +17,54 @@ async fn main() -> Result<(), Error> {
 }
 
 pub async fn handler(req: Request) -> Result<Response<Body>, Error> {
-    // Parse query parameters with MAXIMUM SPEED
+    // parameter parsing with optimized string operations
     let uri = req.uri();
     let query_params = uri.query().unwrap_or("");
 
     let mut song_id = None;
     let mut youtube_api_key = None;
 
-    // Ultra-fast parameter parsing
+    // parameter parsing - fewer allocations
     for param in query_params.split('&') {
         if let Some((key, value)) = param.split_once('=') {
             match key {
-                "query" => song_id = Some(urlencoding::decode(value).unwrap().to_string()),
+                "query" => {
+                    let decoded = urlencoding::decode(value).unwrap();
+                    if decoded != "null" && !decoded.is_empty() {
+                        song_id = Some(decoded.into_owned());
+                    }
+                },
                 "youtubeAPIKEY" => {
-                    youtube_api_key = Some(urlencoding::decode(value).unwrap().to_string())
+                    let decoded = urlencoding::decode(value).unwrap();
+                    if decoded != "default" && !decoded.is_empty() {
+                        youtube_api_key = Some(decoded.into_owned());
+                    }
                 }
                 _ => {}
             }
         }
     }
 
-    // Check for API key in headers
+    // Check for API key in headers - header access
     if youtube_api_key.is_none() {
         youtube_api_key = req
             .headers()
             .get("X-YouTube-API-Key")
             .and_then(|h| h.to_str().ok())
+            .filter(|s| !s.is_empty() && *s != "default")
             .map(|s| s.to_string());
     }
 
-    // Validate song ID
+    // FAST validation
     let song_id = match song_id {
-        Some(id) if id != "null" && !id.is_empty() => id,
-        _ => {
+        Some(id) => id,
+        None => {
             let error_response =
                 ApiResponse::<()>::error("Please enter a valid Spotify song ID".to_string());
             return Ok(Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .header("Content-Type", "application/json")
+                .header("Cache-Control", "no-cache")
                 .body(serde_json::to_string(&error_response)?.into())?);
         }
     };
@@ -62,39 +72,51 @@ pub async fn handler(req: Request) -> Result<Response<Body>, Error> {
     // Get YouTube API keys with failover
     let mut api_keys = get_youtube_api_keys();
     if let Some(key) = youtube_api_key {
-        if key != "default" {
-            api_keys.insert(0, key); // Prioritize user-provided key
-        }
+        api_keys.insert(0, key); // Prioritize user-provided key
     }
 
-    // LIGHTNING FAST song processing
+    // song processing
     match process_song(&song_id, &api_keys).await {
         Ok(youtube_url) => {
-            // Fire and forget analytics update for SPEED
+            let response_data = ApiResponse::success(SongResponse { url: youtube_url });
+            let response_body = serde_json::to_string(&response_data)?;
+            
+            // Send response IMMEDIATELY - NO BLOCKING
+            let response = Response::builder()
+                .status(StatusCode::OK)
+                .header("Content-Type", "application/json")
+                .header("Cache-Control", "public, max-age=600") // 10 minute cache
+                .header("Access-Control-Allow-Origin", "*")  // CORS for faster browser access
+                .header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+                .header("Access-Control-Allow-Headers", "Content-Type, X-YouTube-API-Key")
+                .header("Vary", "Accept-Encoding")  // Support compression
+                .body(response_body.into())?;
+                
+            // Analytics AFTER response - no await
             tokio::spawn(async move {
                 let _ = update_analytics(1, 0).await;
             });
-
-            let response = ApiResponse::success(SongResponse { url: youtube_url });
-            Ok(Response::builder()
-                .status(StatusCode::OK)
-                .header("Content-Type", "application/json")
-                .header("Cache-Control", "public, max-age=300") // 5 minute cache
-                .body(serde_json::to_string(&response)?.into())?)
+            
+            Ok(response)
         }
         Err(e) => {
-            let error_msg = match e.to_string().as_str() {
-                msg if msg.contains("Failed to fetch song info") => 
-                    "Could not fetch song information from Spotify. Please check if the song ID is valid.".to_string(),
+            // error handling with specific error types
+            let (error_msg, status_code) = match e.to_string().as_str() {
+                msg if msg.contains("Failed to fetch song info") || msg.contains("404") => 
+                    ("Could not fetch song information from Spotify. Please check if the song ID is valid.".to_string(), StatusCode::NOT_FOUND),
                 msg if msg.contains("Failed to search YouTube") || msg.contains("API Limit Exceeded") => 
-                    "API Limit Exceeded for all YouTube API Keys. Please try again later or enter your own YouTube API Key.".to_string(),
-                _ => "An unexpected error occurred. Please try again later.".to_string(),
+                    ("API Limit Exceeded for all YouTube API Keys. Please try again later or provide your own YouTube API Key.".to_string(), StatusCode::TOO_MANY_REQUESTS),
+                msg if msg.contains("timeout") =>
+                    ("Request timeout. Please try again.".to_string(), StatusCode::REQUEST_TIMEOUT),
+                _ => ("An unexpected error occurred. Please try again later.".to_string(), StatusCode::INTERNAL_SERVER_ERROR),
             };
 
             let error_response = ApiResponse::<()>::error(error_msg);
             Ok(Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
+                .status(status_code)
                 .header("Content-Type", "application/json")
+                .header("Cache-Control", "no-cache")
+                .header("Access-Control-Allow-Origin", "*")
                 .body(serde_json::to_string(&error_response)?.into())?)
         }
     }
