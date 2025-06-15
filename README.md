@@ -1,65 +1,53 @@
-# MelodySyncer.rs API
+# MelodySyncer - The Fastest Spotify to Youtube API Ever.
 
-A REST API built with Rust and deployed on Vercel that repeats a given string N times.
+MelodySyncer is an **API** to convert Spotify songs or playlists to their Youtube equivalent. It is also the **most accurate** since it uses a unique scoring system that minimizes searching credits and maximises accuracy by factoring in song metadata. Takes less than **100 milliseconds** per song! Built using 🦀 **Rust**, hosted on Vercel.
 
-## API Endpoint
+#### You get: Skip manual searching, Directly get a List, Peace of Mind <br> I get (hopefully): Star, Heart, Follow :)
 
-### POST /repeat
+## Usage
+Visit [dub.sh/melodysyncer](https://dub.sh/melodysyncer) to access this API. Check out detailed API documentation [here](https://melodysyncer.aryankeluskar.com/docs) generated with OpenAPI <br>
 
-Accepts JSON input and returns an array of the repeated string.
+**Example**: `https://melodysyncer.aryankeluskar.com/playlist?query=7fITt66rmO4QIeNs2LPRDj` responds with [a list of YouTube Links](## "can't reveal links in README for copyright purposes") which can be processed with `HttpRequest` in Java, or `requests.get` in Python. This data can be stored in an Array or List for further processing.
 
-**Request Body:**
-```json
-{
-  "text": "Hello World",
-  "count": 3
-}
+### GET /
+    Parameters: None 
+    Response: (html) API Home Page for testing.
+    
+<hr>
+
+### GET /song
+    Parameters: 
+    - query (string): ID of the song in Spotify
+    - X-YouTube-API-Key (header, optional): Google Cloud API Key with YouTube Data v3 enabled
+    Response: (string) Accurate Youtube ID of the song, neglecting any remix, cover, and music videos
+    
+<hr>
+
+### GET /playlist
+    Parameters: 
+    - query (string): ID of the playlist in Spotify
+    - X-YouTube-API-Key (header, optional): Google Cloud API Key with YouTube Data v3 enabled
+    Response: (list of str) List / Array of Strings, each element contains the Youtube URL for the song. The indices remain same from Spotify Playlist
+
+## API Key Usage
+You can provide the YouTube API key in two ways:
+1. As a header (Preferred): `X-YouTube-API-Key: YOUR_API_KEY`
+2. As a query parameter: `?youtubeAPIKEY=YOUR_API_KEY`
+
+If no API key is provided, the server will use its default API key which has a limited trial.
+
+## Install & Run Locally
+Requirements: gh, pip, python <= 3.8
+```bash
+    gh repo clone aryankeluskar/melodysyncer
+    cd melodysyncer
+    cargo install --path .
+```
+Add the required details in .env, then
+```bash
+    cargo build --release
+    vercel dev
 ```
 
-**Response:**
-```json
-{
-  "result": ["Hello World", "Hello World", "Hello World"],
-  "original_text": "Hello World",
-  "count": 3
-}
-```
-
-### GET /repeat
-
-Accepts query parameters and returns an array of the repeated string.
-
-**Query Parameters:**
-- `text`: The string to repeat (URL encoded)
-- `count`: The number of times to repeat (max 1000)
-
-**Example:**
-```
-GET /repeat?text=Hello%20World&count=3
-```
-
-**Response:**
-```json
-{
-  "result": ["Hello World", "Hello World", "Hello World"],
-  "original_text": "Hello World",
-  "count": 3
-}
-```
-
-## Local Development
-
-1. Install Rust and Vercel CLI
-2. Run `vercel dev` to start local development server
-3. Test the API at `http://localhost:3000/repeat`
-
-## Deployment
-
-1. Run `vercel` to deploy to Vercel
-2. The API will be available at your Vercel domain
-
-## Limits
-
-- Maximum count: 1000 (to prevent abuse)
-- Supports both GET and POST methods
-- Proper error handling and validation 
+## Support this project!
+This is my second ever API! Please consider leaving a 🌟 if this added value to your wonderful project. Made with pure love and [freshman fascination](## "it's a real term i swear"). Visit my website at [aryankeluskar.com](https://aryankeluskar.com) <3
