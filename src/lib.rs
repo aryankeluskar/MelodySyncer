@@ -376,6 +376,21 @@ pub fn get_youtube_api_keys() -> Vec<String> {
     if let Ok(key) = env::var("YOUTUBE_API_KEY5") {
         keys.push(key);
     }
+    if let Ok(key) = env::var("YOUTUBE_API_KEY6") {
+        keys.push(key);
+    }
+    if let Ok(key) = env::var("YOUTUBE_API_KEY7") {
+        keys.push(key);
+    }
+    if let Ok(key) = env::var("YOUTUBE_API_KEY8") {
+        keys.push(key);
+    }
+    if let Ok(key) = env::var("YOUTUBE_API_KEY9") {
+        keys.push(key);
+    }
+    if let Ok(key) = env::var("YOUTUBE_API_KEY10") {
+        keys.push(key);
+    }
 
     if keys.is_empty() {
         keys.push("default".to_string());
