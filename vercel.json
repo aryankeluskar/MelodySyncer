@@ -4,5 +4,13 @@
     "**/*.rs": {
       "runtime": "vercel-rust@4.0.8"
     }
-  }
+  },
+  "routes": [
+    { "src": "/", "dest": "/api/index" },
+    { "src": "/song", "dest": "/api/song" },
+    { "src": "/playlist", "dest": "/api/playlist" },
+    { "src": "/help", "dest": "/api/help" },
+    { "src": "/analytics", "dest": "/api/analytics" },
+    { "src": "/favicon.ico", "dest": "/api/favicon" }
+  ]
 } 

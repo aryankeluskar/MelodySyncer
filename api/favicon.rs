@@ -1,6 +1,6 @@
 use vercel_runtime::{run, Body, Error, Request, Response, StatusCode};
 
-const HTML_CONTENT: &str = include_str!("../public/index.html");
+const FAVICON_DATA: &[u8] = include_bytes!("../public/favicon.ico");
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
@@ -10,7 +10,7 @@ async fn main() -> Result<(), Error> {
 pub async fn handler(_req: Request) -> Result<Response<Body>, Error> {
     Ok(Response::builder()
         .status(StatusCode::OK)
-        .header("Content-Type", "text/html; charset=utf-8")
-        .header("Cache-Control", "public, max-age=3600")
-        .body(HTML_CONTENT.into())?)
+        .header("Content-Type", "image/x-icon")
+        .header("Cache-Control", "public, max-age=86400") // 24 hour cache
+        .body(FAVICON_DATA.to_vec().into())?)
 }
