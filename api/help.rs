@@ -6,8 +6,7 @@ async fn main() -> Result<(), Error> {
 }
 
 pub async fn handler(_req: Request) -> Result<Response<Body>, Error> {
-    let help_content = r#"
-🎵 MelodySyncer - The Fastest Spotify to YouTube API Ever (Rust Edition)
+    let help_content = r#"🎵 MelodySyncer - The Fastest Spotify to YouTube API Ever (Rust Edition)
 
 📚 API Documentation:
 
@@ -38,15 +37,10 @@ If no API key provided, server uses default (limited quota).
 - Playlist: /playlist?query=7fITt66rmO4QIeNs2LPRDj
 - With API key: /song?query=SONG_ID&youtubeAPIKEY=YOUR_KEY
 
-🎯 Accuracy Algorithm:
-- +2 points: Channel has "Topic" (official artist channels)
-- +2 points: Title contains "Official Audio"
-- +5 points: Duration matches within 2 seconds
-
-💻 GitHub: https://github.com/aryankeluskar/MelodySyncer
+💻 GitHub: https://git.new/melodysyncer
 📚 Full docs: /docs
 
-Built with ❤️ and 🦀 Rust for maximum performance!
+Built with ❤️ and 🦀 Rust!
 "#;
 
     Ok(Response::builder()
