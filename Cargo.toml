@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 # Core async runtime - maximum performance
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.0", features = ["rt", "net", "time", "macros"] }
 # HTTP client - fastest async HTTP client
 reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
 # JSON serialization - fastest JSON library
@@ -17,8 +17,8 @@ vercel_runtime = "1.0"
 urlencoding = "2.1"
 # Base64 encoding for Spotify auth
 base64 = "0.21"
-# MongoDB async driver
-mongodb = "2.8"
+# MongoDB async driver - optional to reduce bundle size
+mongodb = { version = "2.8", optional = true, default-features = false }
 # Error handling
 anyhow = "1.0"
 thiserror = "1.0"
@@ -33,8 +33,8 @@ regex = "1.0"
 # Lazy static for global clients
 once_cell = "1.19"
 # Tracing for logging
-tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing = { version = "0.1", default-features = false }
+tracing-subscriber = { version = "0.3", default-features = false }
 
 # API handler binaries - all the endpoints
 [[bin]]
@@ -63,4 +63,8 @@ path = "api/favicon.rs"
 
 [[bin]]
 name = "repeat"
-path = "api/repeat.rs" 
+path = "api/repeat.rs"
+
+[features]
+default = ["mongodb"]
+analytics = ["mongodb"] 

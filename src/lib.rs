@@ -358,45 +358,32 @@ pub async fn update_analytics(songs_converted: i32, playlists_converted: i32) ->
     Ok(())
 }
 
-pub fn get_youtube_api_keys() -> Vec<String> {
+// Cached YouTube API keys for MAXIMUM SPEED
+static YOUTUBE_API_KEYS: Lazy<Vec<String>> = Lazy::new(|| {
     let mut keys = Vec::new();
-
-    if let Ok(key) = env::var("YOUTUBE_API_KEY") {
-        keys.push(key);
+    
+    // Try to get up to 10 API keys efficiently
+    for i in 1..=10 {
+        let key_name = if i == 1 {
+            "YOUTUBE_API_KEY".to_string()
+        } else {
+            format!("YOUTUBE_API_KEY{}", i)
+        };
+        
+        if let Ok(key) = env::var(&key_name) {
+            keys.push(key);
+        }
     }
-    if let Ok(key) = env::var("YOUTUBE_API_KEY2") {
-        keys.push(key);
-    }
-    if let Ok(key) = env::var("YOUTUBE_API_KEY3") {
-        keys.push(key);
-    }
-    if let Ok(key) = env::var("YOUTUBE_API_KEY4") {
-        keys.push(key);
-    }
-    if let Ok(key) = env::var("YOUTUBE_API_KEY5") {
-        keys.push(key);
-    }
-    if let Ok(key) = env::var("YOUTUBE_API_KEY6") {
-        keys.push(key);
-    }
-    if let Ok(key) = env::var("YOUTUBE_API_KEY7") {
-        keys.push(key);
-    }
-    if let Ok(key) = env::var("YOUTUBE_API_KEY8") {
-        keys.push(key);
-    }
-    if let Ok(key) = env::var("YOUTUBE_API_KEY9") {
-        keys.push(key);
-    }
-    if let Ok(key) = env::var("YOUTUBE_API_KEY10") {
-        keys.push(key);
-    }
-
+    
     if keys.is_empty() {
         keys.push("default".to_string());
     }
-
+    
     keys
+});
+
+pub fn get_youtube_api_keys() -> Vec<String> {
+    YOUTUBE_API_KEYS.clone()
 }
 
 #[derive(Serialize)]

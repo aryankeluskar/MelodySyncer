@@ -2,8 +2,13 @@
   "name": "melody-syncer-rust",
   "functions": {
     "**/*.rs": {
-      "runtime": "vercel-rust@4.0.8"
+      "runtime": "vercel-rust@4.0.8",
+      "memory": 512,
+      "maxDuration": 30
     }
+  },
+  "env": {
+    "USE_BYTECODE_CACHING": "1"
   },
   "routes": [
     { "src": "/", "dest": "/api/index" },
